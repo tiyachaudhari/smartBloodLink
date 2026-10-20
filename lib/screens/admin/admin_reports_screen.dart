@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:provider/provider.dart';
 
+import '../../models/inventory_item_model.dart';
+import '../../providers/admin_provider.dart';
+import '../../providers/app_mode_provider.dart';
 import '../../services/mock_data_service.dart';
 import '../../utils/app_colors.dart';
+import '../../widgets/mode_switch.dart';
 
 /// System-wide analytics and reports dashboard.
 /// Shows donation trends, request outcomes, inventory levels, and donor activity.
@@ -31,12 +36,11 @@ class _AdminReportsScreenState extends State<AdminReportsScreen>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Reports & Analytics'),
         actions: [
+          const ModeSwitch(),
           IconButton(
             icon: const Icon(Icons.share_rounded),
             tooltip: 'Share Report',
@@ -79,6 +83,7 @@ class _DonationsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isReal = context.watch<AppModeProvider>().isReal;
     final donors = MockDataService.initialUsers
         .where((u) => u.role.name == 'donor')
         .length;
@@ -86,6 +91,12 @@ class _DonationsTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (isReal) ...[
+          const _SimulatedCaption(
+            'Simulated — the VitaLink server does not publish donation data yet',
+          ),
+          const SizedBox(height: 16),
+        ],
         // KPI row
         Row(
           children: [
@@ -235,23 +246,47 @@ class _InventoryTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final inventory = MockDataService.initialInventory;
+    final isReal = context.watch<AppModeProvider>().isReal;
+    final provider = context.watch<AdminProvider>();
+
+    // In real mode the numbers come from the bags the cold-chain devices
+    // reported; in demo mode the bundled simulation is used.
+    final List<BloodBagModel> inventory =
+        isReal ? provider.bags : MockDataService.initialInventory;
 
     final byGroup = <String, int>{};
     for (final bag in inventory) {
-      byGroup[bag.bloodGroup] = (byGroup[bag.bloodGroup] ?? 0) + 1;
+      byGroup[bag.bloodGroup] = (byGroup[bag.bloodGroup] ?? 0) + bag.units;
     }
 
-    final total = inventory.length;
+    final total = inventory.fold<int>(0, (sum, b) => sum + b.units);
     final available =
         inventory.where((b) => b.status.name == 'available').length;
     final expiringSoon = inventory
         .where((b) => b.expiryDate.difference(DateTime.now()).inDays <= 7)
         .length;
 
+    // The server only publishes an expiry date for some bags, so the
+    // "expiring soon" count is only shown when it is known.
+    final expiryKnownBags = inventory.where((b) => b.expiryKnown).toList();
+    final expiringSoonValue = isReal
+        ? (expiryKnownBags.isEmpty
+            ? null
+            : expiryKnownBags
+                .where((b) =>
+                    b.expiryDate.difference(DateTime.now()).inDays <= 7)
+                .length)
+        : expiringSoon;
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (isReal) ...[
+          const _SourceCaption(
+            'Live stock reported by the VitaLink cold-chain devices',
+          ),
+          const SizedBox(height: 16),
+        ],
         Row(
           children: [
             _KpiCard(
@@ -262,8 +297,10 @@ class _InventoryTab extends StatelessWidget {
             ),
             const SizedBox(width: 12),
             _KpiCard(
-              label: 'Available',
-              value: available.toString(),
+              label: isReal ? 'Bags Reported' : 'Available',
+              value: isReal
+                  ? inventory.length.toString()
+                  : available.toString(),
               icon: Icons.check_circle_rounded,
               color: AppColors.success,
             ),
@@ -274,7 +311,7 @@ class _InventoryTab extends StatelessWidget {
           children: [
             _KpiCard(
               label: 'Expiring ≤ 7d',
-              value: expiringSoon.toString(),
+              value: expiringSoonValue?.toString() ?? '—',
               icon: Icons.timer_off_rounded,
               color: AppColors.warning,
             ),
@@ -340,6 +377,7 @@ class _RequestsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isReal = context.watch<AppModeProvider>().isReal;
     final requests = MockDataService.initialRequests;
 
     final fulfilled =
@@ -351,6 +389,12 @@ class _RequestsTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (isReal) ...[
+          const _SimulatedCaption(
+            'Simulated — the VitaLink server does not publish request data yet',
+          ),
+          const SizedBox(height: 16),
+        ],
         Row(
           children: [
             _KpiCard(
@@ -452,6 +496,82 @@ class _RequestsTab extends StatelessWidget {
           );
         }),
       ],
+    );
+  }
+}
+
+// ─── Captions ─────────────────────────────────────────────────────────────────
+
+/// Marks a section whose numbers come from the bundled simulation because
+/// the VitaLink server does not publish that data.
+class _SimulatedCaption extends StatelessWidget {
+  final String message;
+
+  const _SimulatedCaption(this.message);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.warningLight,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.warning.withOpacity(0.6)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.science_rounded, size: 16, color: AppColors.warning),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: AppColors.warning,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Marks a section whose numbers come from the VitaLink server.
+class _SourceCaption extends StatelessWidget {
+  final String message;
+
+  const _SourceCaption(this.message);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.successLight,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.success.withOpacity(0.6)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.cloud_done_rounded,
+              size: 16, color: AppColors.success),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: AppColors.success,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

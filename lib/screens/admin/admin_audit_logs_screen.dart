@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../../models/audit_log_model.dart';
-import '../../services/mock_data_service.dart';
+import '../../providers/admin_provider.dart';
+import '../../providers/app_mode_provider.dart';
 import '../../utils/app_colors.dart';
+import '../../widgets/mode_switch.dart';
 
 /// Immutable, append-only audit trail for all admin and system actions.
 /// Mirrors Firestore append-only security rule — no delete/edit affordances.
@@ -17,19 +20,19 @@ class AdminAuditLogsScreen extends StatefulWidget {
 class _AdminAuditLogsScreenState extends State<AdminAuditLogsScreen> {
   String _searchQuery = '';
   String _selectedSeverity = 'All';
-  List<AuditLogModel> _logs = [];
 
   static const _severities = ['All', 'info', 'warning', 'critical'];
 
-  @override
-  void initState() {
-    super.initState();
-    _logs = List<AuditLogModel>.from(MockDataService.initialAuditLogs)
+  /// The trail comes from the provider: the VitaLink server in real mode,
+  /// the bundled simulation in demo mode.
+  List<AuditLogModel> _logsFrom(AdminProvider provider) {
+    final logs = List<AuditLogModel>.from(provider.auditLogs)
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return logs;
   }
 
-  List<AuditLogModel> get _filtered {
-    return _logs.where((log) {
+  List<AuditLogModel> _filtered(List<AuditLogModel> logs) {
+    return logs.where((log) {
       final matchesQuery = _searchQuery.isEmpty ||
           log.action.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           log.actorName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
@@ -65,12 +68,16 @@ class _AdminAuditLogsScreenState extends State<AdminAuditLogsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final filtered = _filtered;
+    final adminProvider = context.watch<AdminProvider>();
+    final isReal = context.watch<AppModeProvider>().isReal;
+    final logs = _logsFrom(adminProvider);
+    final filtered = _filtered(logs);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Audit Logs'),
         actions: [
+          const ModeSwitch(),
           IconButton(
             icon: const Icon(Icons.download_rounded),
             tooltip: 'Export CSV',
@@ -90,6 +97,18 @@ class _AdminAuditLogsScreenState extends State<AdminAuditLogsScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Column(
               children: [
+                if (isReal) ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Live audit trail from the VitaLink server',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 TextField(
                   decoration: InputDecoration(
                     hintText: 'Search by action, user, or details…',
@@ -177,7 +196,10 @@ class _AdminAuditLogsScreenState extends State<AdminAuditLogsScreen> {
                                 .withOpacity(0.4)),
                         const SizedBox(height: 12),
                         Text(
-                          'No logs match your search',
+                          isReal && logs.isEmpty
+                              ? 'No audit entries published by the VitaLink server'
+                              : 'No logs match your search',
+                          textAlign: TextAlign.center,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
                           ),

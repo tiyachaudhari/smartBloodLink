@@ -17,4 +17,10 @@ class IotRepository {
       _iotService.simulateTemperatureBreach(breachTemp);
 
   void resetSafeNormal() => _iotService.resetToSafeNormal();
+
+  /// Stops the simulated cold chain while real server data is shown.
+  void pause() => _iotService.pause();
+
+  /// Restarts the simulated cold chain.
+  void resume() => _iotService.resume();
 }

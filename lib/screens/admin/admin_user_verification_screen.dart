@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/user_model.dart';
 import '../../providers/admin_provider.dart';
+import '../../providers/app_mode_provider.dart';
 import '../../utils/app_colors.dart';
-import '../../utils/constants.dart';
 import '../../widgets/animated_card.dart';
+import '../../widgets/mode_switch.dart';
 
 /// Screen allowing administrators to review, approve, or suspend user accounts
 class AdminUserVerificationScreen extends StatefulWidget {
@@ -22,7 +23,9 @@ class _AdminUserVerificationScreenState
   @override
   Widget build(BuildContext context) {
     final adminProvider = context.watch<AdminProvider>();
+    final isReal = context.watch<AppModeProvider>().isReal;
     final users = adminProvider.users;
+    final canModerate = adminProvider.canModerateUsers;
 
     final filtered = users.where((u) {
       if (_roleFilter == 'All') return true;
@@ -32,9 +35,45 @@ class _AdminUserVerificationScreenState
     return Scaffold(
       appBar: AppBar(
         title: const Text('User Moderation & Verification'),
+        actions: const [ModeSwitch()],
       ),
       body: Column(
         children: [
+          // The VitaLink server has no user endpoint, so the account list
+          // stays simulated in real mode.
+          if (isReal)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: _NoticeBanner(
+                message:
+                    'Simulated — account data is not published by the VitaLink server',
+                icon: Icons.science_rounded,
+                color: AppColors.warning,
+                background: AppColors.warningLight,
+              ),
+            ),
+          if (isReal && !canModerate)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: _NoticeBanner(
+                message:
+                    'Approve and suspend are disabled — the VitaLink server has no account moderation endpoint',
+                icon: Icons.lock_outline_rounded,
+                color: AppColors.info,
+                background: AppColors.infoLight,
+              ),
+            ),
+          if (adminProvider.actionError != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: _NoticeBanner(
+                message: adminProvider.actionError!,
+                icon: Icons.lock_outline_rounded,
+                color: AppColors.error,
+                background: AppColors.errorLight,
+              ),
+            ),
+
           // Filter Chips
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -163,13 +202,15 @@ class _AdminUserVerificationScreenState
                                 padding:
                                     const EdgeInsets.symmetric(horizontal: 10),
                               ),
-                              onPressed: () {
-                                adminProvider.updateUserStatus(
-                                  user.uid,
-                                  'approved',
-                                  reason: 'Verified by system admin',
-                                );
-                              },
+                              onPressed: canModerate
+                                  ? () {
+                                      adminProvider.updateUserStatus(
+                                        user.uid,
+                                        'approved',
+                                        reason: 'Verified by system admin',
+                                      );
+                                    }
+                                  : null,
                             ),
                             const SizedBox(width: 8),
                           ],
@@ -185,9 +226,12 @@ class _AdminUserVerificationScreenState
                                 padding:
                                     const EdgeInsets.symmetric(horizontal: 10),
                               ),
-                              onPressed: () {
-                                _showSuspendModal(context, adminProvider, user);
-                              },
+                              onPressed: canModerate
+                                  ? () {
+                                      _showSuspendModal(
+                                          context, adminProvider, user);
+                                    }
+                                  : null,
                             ),
                           ],
                         ],
@@ -258,6 +302,51 @@ class _AdminUserVerificationScreenState
           ],
         );
       },
+    );
+  }
+}
+
+/// Small banner that explains the state of the account data on this screen.
+class _NoticeBanner extends StatelessWidget {
+  final String message;
+  final IconData icon;
+  final Color color;
+  final Color background;
+
+  const _NoticeBanner({
+    required this.message,
+    required this.icon,
+    required this.color,
+    required this.background,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.6)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

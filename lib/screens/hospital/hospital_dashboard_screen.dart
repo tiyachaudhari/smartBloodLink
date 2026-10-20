@@ -19,6 +19,14 @@ class HospitalDashboardScreen extends StatelessWidget {
     final hospitalProvider = context.watch<HospitalProvider>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    // The server owns alarm policy. Out of range is informational; only a
+    // server-raised alert is styled as an emergency.
+    final tempAlarming = hospitalProvider.tempAlarmActive;
+    final tempOutOfRange = hospitalProvider.isTempOutOfRange;
+    final tempStatusColor = tempAlarming
+        ? AppColors.error
+        : (tempOutOfRange ? AppColors.warning : AppColors.success);
+
     return Scaffold(
       appBar: const RoleAppBar(title: 'Blood Bank Portal'),
       body: SingleChildScrollView(
@@ -26,8 +34,11 @@ class HospitalDashboardScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Temperature Alert Banner if breach active
-            if (hospitalProvider.tempAlertMessage != null) ...[
+            // Critical banner: only for server-raised alerts, so a live
+            // session never shows an emergency the server did not raise.
+            if (hospitalProvider.tempAlertMessage != null &&
+                (hospitalProvider.tempAlarmActive ||
+                    hospitalProvider.activeAlerts.isNotEmpty)) ...[
               EmergencySosBanner(
                 title: 'CRITICAL COLD-CHAIN ALERT!',
                 subtitle: hospitalProvider.tempAlertMessage!,
@@ -79,9 +90,15 @@ class HospitalDashboardScreen extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        const Text(
-                          'Ready for transfusion',
-                          style: TextStyle(color: Colors.white70, fontSize: 11),
+                        // In real mode the units come from the cold-chain
+                        // devices, so the subtitle describes the source
+                        // instead of promising transfusion readiness.
+                        Text(
+                          hospitalProvider.isRealMode
+                              ? 'Reported by the cold-chain devices'
+                              : 'Ready for transfusion',
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 11),
                         ),
                       ],
                     ),
@@ -101,16 +118,20 @@ class HospitalDashboardScreen extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: hospitalProvider.isTempSafe
-                            ? (isDark
-                                ? const Color(0xFF1E2F23)
-                                : const Color(0xFFE8F5E9))
-                            : AppColors.errorLight,
+                        color: tempAlarming
+                            ? AppColors.errorLight
+                            : (tempOutOfRange
+                                ? AppColors.warningLight
+                                : (isDark
+                                    ? const Color(0xFF1E2F23)
+                                    : const Color(0xFFE8F5E9))),
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color: hospitalProvider.isTempSafe
-                              ? AppColors.success
-                              : AppColors.error,
+                          color: tempAlarming
+                              ? AppColors.error
+                              : (tempOutOfRange
+                                  ? AppColors.warning
+                                  : AppColors.success),
                           width: 1.5,
                         ),
                       ),
@@ -120,46 +141,49 @@ class HospitalDashboardScreen extends StatelessWidget {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(
-                                'ESP32 FRIDGE A',
+                              Flexible(
+                                child: Text(
+                                hospitalProvider.deviceName.toUpperCase(),
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  color: hospitalProvider.isTempSafe
-                                      ? AppColors.success
-                                      : AppColors.error,
+                                  color: tempStatusColor,
                                   fontSize: 10,
                                   fontWeight: FontWeight.bold,
                                   letterSpacing: 0.5,
+                                ),
                                 ),
                               ),
                               Icon(
                                 Icons.thermostat_rounded,
                                 size: 18,
-                                color: hospitalProvider.isTempSafe
-                                    ? AppColors.success
-                                    : AppColors.error,
+                                color: tempStatusColor,
                               ),
                             ],
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            '${hospitalProvider.currentTemperature}°C',
+                            hospitalProvider.currentTemperature == null
+                                ? '--'
+                                : '${hospitalProvider.currentTemperature!.toStringAsFixed(1)}°C',
                             style: TextStyle(
-                              color: hospitalProvider.isTempSafe
-                                  ? AppColors.success
-                                  : AppColors.error,
+                              color: tempStatusColor,
                               fontSize: 28,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            hospitalProvider.isTempSafe
-                                ? 'Optimal (2-6°C)'
-                                : 'BREACH ALERT!',
+                            tempAlarming
+                                ? 'BREACH ALERT!'
+                                : (tempOutOfRange
+                                    ? (hospitalProvider.tempAlarmEnabled
+                                        ? 'Outside 2-6°C'
+                                        : 'Outside 2-6°C (alarms off)')
+                                    : (hospitalProvider.hasTemperature
+                                        ? 'Optimal (2-6°C)'
+                                        : 'NO READING')),
                             style: TextStyle(
-                              color: hospitalProvider.isTempSafe
-                                  ? AppColors.success
-                                  : AppColors.error,
+                              color: tempStatusColor,
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
                             ),
@@ -198,7 +222,7 @@ class HospitalDashboardScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Critical shortage (< 3 units) in: ${hospitalProvider.lowStockGroups.join(", ")}',
+                            'Running low (< 3 units) in: ${hospitalProvider.lowStockGroups.join(", ")}',
                             style: const TextStyle(
                                 fontSize: 12, color: Colors.black87),
                           ),

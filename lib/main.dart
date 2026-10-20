@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'providers/theme_provider.dart';
+import 'providers/app_mode_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/patient_provider.dart';
 import 'providers/donor_provider.dart';
@@ -11,6 +12,8 @@ import 'providers/ambulance_provider.dart';
 import 'providers/admin_provider.dart';
 import 'providers/notification_provider.dart';
 
+import 'services/auth_service.dart';
+import 'services/vitalink_session.dart';
 import 'utils/app_theme.dart';
 import 'screens/auth/splash_screen.dart';
 
@@ -36,6 +39,21 @@ void main() async {
     ),
   );
 
+  // Restore a live hospital/admin session before the first frame so the
+  // IoT providers can connect immediately when that role is active.
+  await AuthService().bootstrap();
+
+  // Restore the Demo/Real choice before the first frame too, so the app
+  // opens in the mode the user last used.
+  await AppModeProvider.instance.load();
+
+  // Real mode needs a VitaLink hospital or admin session. Without one the
+  // app opens in demo mode instead of showing a broken live view.
+  if (AppModeProvider.instance.isReal &&
+      !VitalinkSession.instance.canUseIot) {
+    await AppModeProvider.instance.setMode(AppMode.demo);
+  }
+
   runApp(const SmartBloodLinkApp());
 }
 
@@ -49,18 +67,29 @@ class SmartBloodLinkApp extends StatelessWidget {
         // Theme — must be first so downstream providers can read theme data
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
 
+        // Demo / Real data source — shared by every role provider
+        ChangeNotifierProvider.value(value: AppModeProvider.instance),
+
         // Auth — owns the current user session
         ChangeNotifierProvider(create: (_) => AuthProvider()),
 
         // Notification — cross-cutting, independent of role
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
 
-        // Role-specific ViewModels — lazily instantiated
+        // Role-specific ViewModels — lazily instantiated.
+        // The hospital and admin view models follow the app-wide mode, so
+        // they are wired through a proxy that pushes mode changes into them.
         ChangeNotifierProvider(create: (_) => PatientProvider()),
         ChangeNotifierProvider(create: (_) => DonorProvider()),
-        ChangeNotifierProvider(create: (_) => HospitalProvider()),
+        ChangeNotifierProxyProvider<AppModeProvider, HospitalProvider>(
+          create: (_) => HospitalProvider(),
+          update: (_, mode, hospital) => hospital!..setMode(mode.mode),
+        ),
         ChangeNotifierProvider(create: (_) => AmbulanceProvider()),
-        ChangeNotifierProvider(create: (_) => AdminProvider()),
+        ChangeNotifierProxyProvider<AppModeProvider, AdminProvider>(
+          create: (_) => AdminProvider(),
+          update: (_, mode, admin) => admin!..setMode(mode.mode),
+        ),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {

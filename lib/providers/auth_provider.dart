@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import '../repositories/auth_repository.dart';
+import '../services/vitalink_session.dart';
 import '../utils/constants.dart';
+import 'app_mode_provider.dart';
 
 /// Authentication ViewModel managing user sessions, roles, and verification
 class AuthProvider with ChangeNotifier {
@@ -35,6 +37,7 @@ class AuthProvider with ChangeNotifier {
       );
       _errorMessage = null;
       _setLoading(false);
+      await _alignModeWithSession();
       return true;
     } catch (e) {
       _errorMessage = e.toString().replaceAll('Exception: ', '');
@@ -48,6 +51,7 @@ class AuthProvider with ChangeNotifier {
     _currentUser = await _authRepository.loginAsDemoRole(role);
     _errorMessage = null;
     _setLoading(false);
+    await _alignModeWithSession();
   }
 
   Future<bool> register({
@@ -115,6 +119,18 @@ class AuthProvider with ChangeNotifier {
     await _authRepository.signOut();
     _currentUser = null;
     notifyListeners();
+    // Without a session there is no real data to show.
+    await AppModeProvider.instance.setMode(AppMode.demo);
+  }
+
+  /// Real mode needs a VitaLink hospital or admin session.
+  ///
+  /// A demo account (or a sign-out) leaves the app without one, so the app
+  /// falls back to demo mode instead of showing an error.
+  Future<void> _alignModeWithSession() async {
+    if (!AppModeProvider.instance.isReal) return;
+    if (VitalinkSession.instance.canUseIot) return;
+    await AppModeProvider.instance.setMode(AppMode.demo);
   }
 
   void _setLoading(bool value) {

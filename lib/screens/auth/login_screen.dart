@@ -208,6 +208,24 @@ class _LoginScreenState extends State<LoginScreen> {
                         }
                       },
                     ),
+                    const SizedBox(height: 10),
+                    const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.cloud_outlined,
+                            size: 14, color: Colors.grey),
+                        SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            'A VitaLink hospital or admin account unlocks real '
+                            'mode with live cold-chain data from the server',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 11, color: Colors.grey),
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),

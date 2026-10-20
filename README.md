@@ -24,9 +24,9 @@
 |-------|-----------|
 | UI | Flutter 3.x · Material 3 · Dark/Light mode |
 | State | Provider (MVVM) |
-| Backend | Firebase Auth · Cloud Firestore · Cloud Functions · Firebase Storage · FCM |
-| IoT | ESP32 sensor telemetry → Cloud Functions → Firestore |
-| RFID | Simulated scanner overlay → bag lifecycle state machine |
+| Backend | VitaLink server (Express + PostgreSQL) · WebSocket realtime |
+| IoT | ESP32 sensor telemetry → HTTPS ingest → VitaLink server → app |
+| RFID | RC522 reader on the device → bag list on the server · simulated scanner overlay in demo mode |
 | Maps | Custom vector canvas (demo) / Google Maps Flutter (production) |
 | Charts | fl_chart |
 
@@ -57,6 +57,40 @@ functions/
 ├── matchingEngine.js            # Parallel donor + hospital matching
 └── iotWatcher.js                # ESP32 telemetry + breach detection
 ```
+
+---
+
+## Two data modes: Demo and Real
+
+The app has an app-wide **Demo / Real** switch in the top-right corner of
+every app bar (the `DEMO | REAL` pill). The choice is remembered between
+launches.
+
+| | **Demo mode** | **Real mode** |
+|---|---|---|
+| Cold-chain telemetry | simulated 4 °C stream on the device | live ESP32 data from the VitaLink server |
+| Bag list, stock counts | bundled mock inventory | bags the cold-chain device reported |
+| Alerts, alarm policy, device commands | local simulation | server alerts, alarm policy and commands |
+| Admin device list, audit trail | bundled mock data | server device list and audit trail |
+| Requests, donors, donations, ambulance, rewards | bundled mock data | bundled mock data (the server does not publish these) |
+
+Rules that the code enforces:
+
+- **Real mode never invents a value the server did not send.** Missing
+  values render as `—` or as an empty state. The only derived value is the
+  collection date, which is estimated from the expiry date and labelled
+  *estimated*.
+- The server owns the alarm policy. A reading outside the band is shown as
+  information; only a server-raised alert is shown as an alarm.
+- Demo mode makes no network calls at all, so the app works with the
+  server and the fridge switched off.
+
+Real mode needs a VitaLink **hospital or admin** account. Tapping the switch
+without a session opens a connect dialog for the server credentials; other
+roles are told that real mode is not available to them.
+
+The server the app talks to is the same one the ESP32 uses:
+`https://vitalapi.fenric.uk` (REST + WebSocket).
 
 ---
 

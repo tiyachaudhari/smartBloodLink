@@ -21,6 +21,7 @@ class IotMonitoringService {
 
   double _currentTemp = 4.0;
   bool _isManualSimulation = false;
+  bool _paused = false;
   int _consecutiveViolations = 0;
   Timer? _telemetryTimer;
 
@@ -32,9 +33,19 @@ class IotMonitoringService {
   List<SensorReading> get recentReadings =>
       MockDataService.initialSensorReadings;
 
+  /// Stops the simulation.
+  ///
+  /// The app calls this while it shows real server data, so the simulated
+  /// cold chain does not drift in the background.
+  void pause() => _paused = true;
+
+  /// Restarts the simulation.
+  void resume() => _paused = false;
+
   void _startTelemetryLoop() {
     _telemetryTimer?.cancel();
     _telemetryTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (_paused) return;
       if (!_isManualSimulation) {
         // Natural subtle cold-chain temperature oscillation between 3.6°C and 4.4°C
         final randomOffset = (Random().nextDouble() * 0.4) - 0.2;

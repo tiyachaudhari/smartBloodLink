@@ -16,6 +16,24 @@ class BloodBagModel {
   final String? reservedForRequestId;
   final String? notes;
 
+  /// True when the record came from the VitaLink server rather than the
+  /// bundled simulation. Server-backed records never show invented values.
+  final bool serverBacked;
+
+  /// False when the server did not send an expiry date. The UI shows a dash
+  /// instead of a made-up date.
+  final bool expiryKnown;
+
+  /// False when no collection date could be derived from the expiry date.
+  final bool collectionDateKnown;
+
+  /// True when the collection date was derived from the expiry date rather
+  /// than reported by the server.
+  final bool collectionDateEstimated;
+
+  /// False when the device did not report a temperature for this bag.
+  final bool temperatureKnown;
+
   BloodBagModel({
     required this.bagId,
     required this.hospitalId,
@@ -30,6 +48,11 @@ class BloodBagModel {
     this.currentTempCelsius = 4.2,
     this.reservedForRequestId,
     this.notes,
+    this.serverBacked = false,
+    this.expiryKnown = true,
+    this.collectionDateKnown = true,
+    this.collectionDateEstimated = false,
+    this.temperatureKnown = true,
   });
 
   bool get isExpired => DateTime.now().isAfter(expiryDate);
@@ -102,6 +125,11 @@ class BloodBagModel {
       currentTempCelsius: currentTempCelsius ?? this.currentTempCelsius,
       reservedForRequestId: reservedForRequestId ?? this.reservedForRequestId,
       notes: notes ?? this.notes,
+      serverBacked: serverBacked,
+      expiryKnown: expiryKnown,
+      collectionDateKnown: collectionDateKnown,
+      collectionDateEstimated: collectionDateEstimated,
+      temperatureKnown: temperatureKnown,
     );
   }
 }

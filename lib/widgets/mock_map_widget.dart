@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
 import 'pulse_animation.dart';
@@ -28,10 +27,16 @@ class MockMapWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    // The map is sometimes asked to fill the space that is left over, which
+    // means an infinite height. An infinite height must not reach the
+    // layout: it would place the moving marker at an infinite offset and the
+    // canvas would be handed a NaN coordinate.
+    final fixedHeight = height.isFinite ? height : null;
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
       child: Container(
-        height: height,
+        height: fixedHeight,
         width: double.infinity,
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF1A2130) : const Color(0xFFE8EEF5),
@@ -39,76 +44,83 @@ class MockMapWidget extends StatelessWidget {
             color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
           ),
         ),
-        child: Stack(
-          children: [
-            // Custom Painter for roads, grid, and route
-            Positioned.fill(
-              child: CustomPaint(
-                painter: _MapGridPainter(isDark: isDark),
-              ),
-            ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Marker positions come from the size the map actually got, so
+            // they are always finite and always inside the map.
+            final double mapWidth =
+                constraints.maxWidth.isFinite ? constraints.maxWidth : 0.0;
+            final double mapHeight =
+                constraints.maxHeight.isFinite ? constraints.maxHeight : 0.0;
 
-            // Pickup Hospital Marker (Top Left Area)
-            Positioned(
-              top: 30,
-              left: 35,
-              child: _LocationMarker(
-                label: pickupName,
-                icon: Icons.local_hospital_rounded,
-                color: const Color(0xFF1976D2),
-              ),
-            ),
+            return Stack(
+              children: [
+                // Custom Painter for roads, grid, and route
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: _MapGridPainter(isDark: isDark),
+                  ),
+                ),
 
-            // Destination Clinic Marker (Bottom Right Area)
-            Positioned(
-              bottom: 45,
-              right: 35,
-              child: _LocationMarker(
-                label: destinationName,
-                icon: Icons.personal_injury_rounded,
-                color: AppColors.primary,
-              ),
-            ),
+                // Pickup Hospital Marker (Top Left Area)
+                Positioned(
+                  top: 20,
+                  left: 20,
+                  child: _LocationMarker(
+                    label: pickupName,
+                    icon: Icons.local_hospital_rounded,
+                    color: const Color(0xFF1976D2),
+                  ),
+                ),
 
-            // Moving Ambulance Marker (Center of route)
-            Positioned(
-              top: height * 0.42,
-              left: MediaQuery.of(context).size.width * 0.42,
-              child: PulseAnimation(
-                pulseColor: AppColors.primary,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: const BoxDecoration(
+                // Destination Clinic Marker (Bottom Right Area)
+                Positioned(
+                  bottom: 52,
+                  right: 20,
+                  child: _LocationMarker(
+                    label: destinationName,
+                    icon: Icons.personal_injury_rounded,
                     color: AppColors.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.emergency_rounded,
-                    color: Colors.white,
-                    size: 20,
                   ),
                 ),
-              ),
-            ),
 
-            // Live Telemetry Badge (Bottom Bar)
-            Positioned(
-              bottom: 12,
-              left: 12,
-              right: 12,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? Colors.black.withOpacity(0.8)
-                      : Colors.white.withOpacity(0.9),
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: AppColors.softShadow,
+                // Moving Ambulance Marker (Center of route)
+                Positioned(
+                  top: mapHeight * 0.42,
+                  left: mapWidth * 0.42,
+                  child: PulseAnimation(
+                    pulseColor: AppColors.primary,
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: const BoxDecoration(
+                        color: AppColors.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.emergency_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
+
+                // Live Telemetry Badge (Bottom Bar)
+                Positioned(
+                  bottom: 12,
+                  left: 12,
+                  right: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? Colors.black.withOpacity(0.8)
+                          : Colors.white.withOpacity(0.9),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: AppColors.softShadow,
+                    ),
+                    child: Row(
                       children: [
                         Container(
                           width: 8,
@@ -127,20 +139,26 @@ class MockMapWidget extends StatelessWidget {
                             color: AppColors.success,
                           ),
                         ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '$distanceRemainingKm km remaining • ETA: $etaMinutes mins',
+                            textAlign: TextAlign.right,
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
-                    Text(
-                      '${distanceRemainingKm} km remaining • ETA: $etaMinutes mins',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );
@@ -161,6 +179,7 @@ class _LocationMarker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           padding: const EdgeInsets.all(6),
@@ -179,13 +198,16 @@ class _LocationMarker extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Container(
+          constraints: const BoxConstraints(maxWidth: 130),
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           decoration: BoxDecoration(
             color: Colors.black.withOpacity(0.65),
             borderRadius: BorderRadius.circular(6),
           ),
           child: Text(
-            label.length > 18 ? '${label.substring(0, 16)}...' : label,
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: Colors.white,
               fontSize: 10,

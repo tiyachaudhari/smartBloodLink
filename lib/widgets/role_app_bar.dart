@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../providers/app_mode_provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/hospital_provider.dart';
 import '../providers/notification_provider.dart';
 import '../providers/theme_provider.dart';
 import '../screens/common/profile_screen.dart';
 import '../utils/app_colors.dart';
-import '../utils/constants.dart';
+import 'mode_switch.dart';
 
-/// Standard app bar across role dashboards with theme switcher, notifications, and profile
+/// Standard app bar across role dashboards with the data-source switch,
+/// theme switcher, notifications, and profile
 class RoleAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final bool showBackButton;
@@ -27,6 +30,7 @@ class RoleAppBar extends StatelessWidget implements PreferredSizeWidget {
     final themeProvider = context.watch<ThemeProvider>();
     final notificationProvider = context.watch<NotificationProvider>();
     final role = authProvider.currentRole;
+    final unread = _unreadCount(context, notificationProvider);
 
     return AppBar(
       automaticallyImplyLeading: showBackButton,
@@ -52,6 +56,7 @@ class RoleAppBar extends StatelessWidget implements PreferredSizeWidget {
               children: [
                 Text(
                   title,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -59,6 +64,7 @@ class RoleAppBar extends StatelessWidget implements PreferredSizeWidget {
                 ),
                 Text(
                   role.displayName,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 11,
                     color: AppColors.primary,
@@ -71,6 +77,9 @@ class RoleAppBar extends StatelessWidget implements PreferredSizeWidget {
         ],
       ),
       actions: [
+        // Demo / Real data source switch — always in the top-right corner
+        const ModeSwitch(),
+
         // Dark / Light Mode Switcher
         IconButton(
           tooltip: 'Toggle Theme',
@@ -94,7 +103,7 @@ class RoleAppBar extends StatelessWidget implements PreferredSizeWidget {
                 _showNotificationsModal(context, notificationProvider);
               },
             ),
-            if (notificationProvider.unreadCount > 0)
+            if (unread > 0)
               Positioned(
                 top: 8,
                 right: 8,
@@ -105,7 +114,7 @@ class RoleAppBar extends StatelessWidget implements PreferredSizeWidget {
                     shape: BoxShape.circle,
                   ),
                   child: Text(
-                    '${notificationProvider.unreadCount}',
+                    '$unread',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 10,
@@ -146,11 +155,26 @@ class RoleAppBar extends StatelessWidget implements PreferredSizeWidget {
     );
   }
 
+  /// Number shown on the notification badge.
+  ///
+  /// Real mode shows the server alerts, demo mode the bundled notifications.
+  int _unreadCount(BuildContext context, NotificationProvider notifProvider) {
+    if (context.watch<AppModeProvider>().isReal) {
+      return context.watch<HospitalProvider>().activeAlerts.length;
+    }
+    return notifProvider.unreadCount;
+  }
+
   void _showNotificationsModal(
     BuildContext context,
     NotificationProvider notifProvider,
   ) {
-    notifProvider.markAllAsRead();
+    final isReal = context.read<AppModeProvider>().isReal;
+    if (!isReal) notifProvider.markAllAsRead();
+    final alerts = isReal
+        ? context.read<HospitalProvider>().activeAlerts
+        : const <dynamic>[];
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -167,9 +191,11 @@ class RoleAppBar extends StatelessWidget implements PreferredSizeWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Notifications & Alerts',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  const Expanded(
+                    child: Text(
+                      'Notifications & Alerts',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
@@ -177,56 +203,115 @@ class RoleAppBar extends StatelessWidget implements PreferredSizeWidget {
                   ),
                 ],
               ),
+              if (isReal)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    'Live alerts raised by the VitaLink server',
+                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                ),
               const Divider(),
               Expanded(
-                child: notifProvider.notifications.isEmpty
-                    ? const Center(
-                        child: Text('No active notifications'),
-                      )
-                    : ListView.separated(
-                        itemCount: notifProvider.notifications.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          final item = notifProvider.notifications[index];
-                          return ListTile(
-                            leading: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withOpacity(0.1),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.campaign_rounded,
-                                color: AppColors.primary,
-                                size: 20,
-                              ),
-                            ),
-                            title: Text(
-                              item.title,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                            ),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const SizedBox(height: 4),
-                                Text(item.body,
-                                    style: const TextStyle(fontSize: 12)),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${item.timestamp.hour.toString().padLeft(2, '0')}:${item.timestamp.minute.toString().padLeft(2, '0')}',
-                                  style: const TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
+                child: isReal
+                    ? _alertsList(context, alerts)
+                    : _notificationsList(context, notifProvider),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Server alerts, shown while the app is in real mode.
+  Widget _alertsList(BuildContext context, List<dynamic> alerts) {
+    if (alerts.isEmpty) {
+      return const Center(child: Text('No active server alerts'));
+    }
+    return ListView.separated(
+      itemCount: alerts.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (context, index) {
+        final alert = alerts[index];
+        return ListTile(
+          leading: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: (alert.isCritical ? AppColors.error : AppColors.warning)
+                  .withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              alert.isCritical
+                  ? Icons.warning_rounded
+                  : Icons.thermostat_rounded,
+              color: alert.isCritical ? AppColors.error : AppColors.warning,
+              size: 20,
+            ),
+          ),
+          title: Text(
+            alert.type.replaceAll('_', ' '),
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 4),
+              Text(alert.message, style: const TextStyle(fontSize: 12)),
+              const SizedBox(height: 4),
+              Text(
+                alert.openedAt == null
+                    ? ''
+                    : '${alert.openedAt!.hour.toString().padLeft(2, '0')}:'
+                        '${alert.openedAt!.minute.toString().padLeft(2, '0')}',
+                style: const TextStyle(fontSize: 10, color: Colors.grey),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Bundled notifications, shown while the app is in demo mode.
+  Widget _notificationsList(
+      BuildContext context, NotificationProvider notifProvider) {
+    if (notifProvider.notifications.isEmpty) {
+      return const Center(child: Text('No active notifications'));
+    }
+    return ListView.separated(
+      itemCount: notifProvider.notifications.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (context, index) {
+        final item = notifProvider.notifications[index];
+        return ListTile(
+          leading: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.campaign_rounded,
+              color: AppColors.primary,
+              size: 20,
+            ),
+          ),
+          title: Text(
+            item.title,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 4),
+              Text(item.body, style: const TextStyle(fontSize: 12)),
+              const SizedBox(height: 4),
+              Text(
+                '${item.timestamp.hour.toString().padLeft(2, '0')}:'
+                '${item.timestamp.minute.toString().padLeft(2, '0')}',
+                style: const TextStyle(fontSize: 10, color: Colors.grey),
               ),
             ],
           ),
